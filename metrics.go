@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel/semconv/v1.20.0/httpconv"
 	semconv "go.opentelemetry.io/otel/semconv/v1.23.0"
 
 	"github.com/labstack/echo/v4"
@@ -125,9 +124,12 @@ func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
 
 			var attrs []attribute.KeyValue
 			attrs = append(attrs, semconv.ServiceName(conf.ServiceName))
-			attrs = append(attrs, httpconv.ServerRequest("", c.Request())...)
 			attrs = append(attrs, semconv.HTTPRoute(strings.ToValidUTF8(url, "\uFFFD")))
+			attrs = append(attrs, semconv.HTTPRequestMethodKey.String(c.Request().Method))
+			attrs = append(attrs, semconv.HostName(c.Scheme()))
+
 			attrs = append(attrs, semconv.HTTPStatusCodeKey.Int(status))
+			attrs = append(attrs, semconv.HTTPResponseStatusCode(status))
 
 			for key, labelFunc := range conf.LabelFuncs {
 				attrs = append(attrs, attribute.String(key, labelFunc(c, err)))
