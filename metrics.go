@@ -3,6 +3,7 @@ package otelmetricsecho
 import (
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ type MiddlewareConfig struct {
 	// Skipper defines a function to skip middleware.
 	Skipper                   middleware.Skipper
 	ServiceName               string
+	InstanceID                string
 	LabelFuncs                map[string]LabelValueFunc
 	timeNow                   func() time.Time
 	DoNotUseRequestPathFor404 bool
@@ -69,6 +71,15 @@ func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
 
 	if conf.ServiceName == "" {
 		conf.ServiceName = defaultServiceName
+	}
+
+	if conf.InstanceID == "" {
+		instanceID, err := os.Hostname()
+		if err != nil {
+			instanceID = defaultServiceName
+		}
+
+		conf.InstanceID = instanceID
 	}
 
 	requestCount, _ := metrics.Int64Counter(
@@ -126,9 +137,9 @@ func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
 			attrs = append(attrs, semconv.ServiceName(conf.ServiceName))
 			attrs = append(attrs, semconv.HTTPRoute(strings.ToValidUTF8(url, "\uFFFD")))
 			attrs = append(attrs, semconv.HTTPRequestMethodKey.String(c.Request().Method))
-			attrs = append(attrs, semconv.HostName(c.Scheme()))
-
-			attrs = append(attrs, semconv.HTTPStatusCodeKey.Int(status))
+			attrs = append(attrs, semconv.URLScheme(c.Scheme()))
+			attrs = append(attrs, semconv.HostName(c.Request().Host))
+			attrs = append(attrs, semconv.ServiceInstanceID(conf.InstanceID))
 			attrs = append(attrs, semconv.HTTPResponseStatusCode(status))
 
 			for key, labelFunc := range conf.LabelFuncs {
