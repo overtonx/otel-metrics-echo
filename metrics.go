@@ -23,6 +23,7 @@ const (
 )
 
 const defaultServiceName = "echo"
+const defaultEnv = "production"
 const meterName = "otel_metrics_echo"
 
 const (
@@ -39,6 +40,7 @@ type MiddlewareConfig struct {
 	Skipper                   middleware.Skipper
 	ServiceName               string
 	InstanceID                string
+	Env                       string
 	LabelFuncs                map[string]LabelValueFunc
 	timeNow                   func() time.Time
 	DoNotUseRequestPathFor404 bool
@@ -67,6 +69,10 @@ func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
 
 	if conf.timeNow == nil {
 		conf.timeNow = time.Now
+	}
+
+	if conf.Env == "" {
+		conf.Env = defaultEnv
 	}
 
 	if conf.ServiceName == "" {
@@ -135,11 +141,12 @@ func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
 
 			var attrs []attribute.KeyValue
 			attrs = append(attrs, semconv.ServiceName(conf.ServiceName))
+			attrs = append(attrs, semconv.ServiceInstanceID(conf.InstanceID))
+			attrs = append(attrs, semconv.DeploymentEnvironment(conf.Env))
 			attrs = append(attrs, semconv.HTTPRoute(strings.ToValidUTF8(url, "\uFFFD")))
 			attrs = append(attrs, semconv.HTTPRequestMethodKey.String(c.Request().Method))
 			attrs = append(attrs, semconv.URLScheme(c.Scheme()))
 			attrs = append(attrs, semconv.HostName(c.Request().Host))
-			attrs = append(attrs, semconv.ServiceInstanceID(conf.InstanceID))
 			attrs = append(attrs, semconv.HTTPResponseStatusCode(status))
 
 			for key, labelFunc := range conf.LabelFuncs {
