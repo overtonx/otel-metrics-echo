@@ -35,6 +35,9 @@ const (
 
 var sizeBuckets = []float64{1.0 * bKB, 2.0 * bKB, 5.0 * bKB, 10.0 * bKB, 100 * bKB, 500 * bKB, 1.0 * bMB, 2.5 * bMB, 5.0 * bMB, 10.0 * bMB}
 
+// durationBuckets - bucket in seconds
+var durationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5}
+
 type MiddlewareConfig struct {
 	// Skipper defines a function to skip middleware.
 	Skipper                   middleware.Skipper
@@ -64,9 +67,6 @@ func NewMiddlewareWithConfig(config MiddlewareConfig) echo.MiddlewareFunc {
 }
 
 func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
-	var meterProvider = otel.GetMeterProvider()
-	metrics := meterProvider.Meter(meterName)
-
 	if conf.timeNow == nil {
 		conf.timeNow = time.Now
 	}
@@ -88,6 +88,15 @@ func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
 		conf.InstanceID = instanceID
 	}
 
+	var meterProvider = otel.GetMeterProvider()
+	metrics := meterProvider.Meter(
+		meterName,
+		metric.WithInstrumentationAttributes(
+			semconv.ServiceName(conf.ServiceName),
+			semconv.ServiceInstanceID(conf.InstanceID),
+		),
+	)
+
 	requestCount, _ := metrics.Int64Counter(
 		metricHTTPRequestsTotal,
 		metric.WithDescription("How many HTTP requests processed, partitioned by status code and HTTP method."),
@@ -96,17 +105,22 @@ func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
 	requestDuration, _ := metrics.Float64Histogram(
 		metricHTTPRequestDurationSeconds,
 		metric.WithDescription("The HTTP request latencies in seconds."),
+		metric.WithExplicitBucketBoundaries(durationBuckets...),
+		metric.WithUnit("seconds"),
 	)
 
 	responseSize, _ := metrics.Float64Histogram(
 		metricHTTPResponseSizeBytes,
 		metric.WithDescription("The HTTP response sizes in bytes."),
 		metric.WithExplicitBucketBoundaries(sizeBuckets...),
+		metric.WithUnit("bytes"),
 	)
+
 	requestSize, _ := metrics.Float64Histogram(
 		metricHTTPRequestSizeBytes,
 		metric.WithDescription("The HTTP request sizes in bytes."),
 		metric.WithExplicitBucketBoundaries(sizeBuckets...),
+		metric.WithUnit("bytes"),
 	)
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -119,7 +133,7 @@ func (conf MiddlewareConfig) ToMiddleware() (echo.MiddlewareFunc, error) {
 
 			start := conf.timeNow()
 			err := next(c)
-			elapsed := float64(conf.timeNow().Sub(start)) / float64(time.Second)
+			elapsed := conf.timeNow().Sub(start).Seconds()
 
 			url := c.Path() // contains route path ala `/users/:id`
 			if url == "" && !conf.DoNotUseRequestPathFor404 {
